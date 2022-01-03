@@ -1,0 +1,12 @@
+{
+  "testEnvironment": "node",
+  "testRegex": ".e2e-spec.ts$",
+  "rootDir": "../../../",
+  "transform": {
+    "^.+\\.(t|j)s$": "ts-jest"
+  },
+  "moduleNameMapper": {
+    "src/(.*)": "<rootDir>/src/$1"
+  },
+  "setupFiles": ["./src/test/setup.ts"]
+}

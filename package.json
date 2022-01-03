@@ -1,0 +1,27 @@
+{
+  "name": "crm-scrapper",
+  "version": "1.0.0",
+  "description": "",
+  "main": "./dist/index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "tsc",
+    "test:e2e": "NODE_ENV=test jest --config ./src/test/e2e/jest-e2e.config.json --runInBand"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@types/node": "^17.0.6",
+    "axios": "^0.24.0",
+    "cheerio": "^1.0.0-rc.10",
+    "date-fns": "^2.28.0",
+    "dotenv": "^10.0.0",
+    "fp-ts": "^2.11.5"
+  },
+  "devDependencies": {
+    "@types/jest": "^27.4.0",
+    "jest": "^27.4.5",
+    "ts-jest": "^27.1.2",
+    "typescript": "^4.5.4"
+  }
+}
