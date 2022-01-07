@@ -7,14 +7,13 @@ import * as dates from 'date-fns';
 import { ru } from 'date-fns/locale';
 import { pipe } from 'fp-ts/lib/function';
 import { Options, Param, RoomType, AdResult } from '../index';
-import { axiosCallToTask, UnknownAxiosError } from 'src/utils/axios';
+import { axiosCallToTask, UnknownAxiosError } from '../utils/axios';
 import * as cheerio from 'cheerio';
-import { getCheerioOptionElement } from 'src/utils/cheerio';
-import { string } from 'fp-ts';
+import { getCheerioOptionElement } from '../utils/cheerio';
 import { AxiosError } from 'axios';
-import { initRequest } from 'src/utils/request';
+import { initRequest } from '../utils/request';
 
-export enum AvitoStatusType {
+export enum StatusType {
   ACTIVE = 'ACTIVE',
   ARCHIVED = 'ARCHIVED',
   INACTIVE = 'INACTIVE',
@@ -219,16 +218,16 @@ export const checkAd = (options: Options) => {
         );
         return {
           status: notFound
-            ? AvitoStatusType.NOT_FOUND
+            ? StatusType.NOT_FOUND
             : hasModerationWarning
-            ? AvitoStatusType.MODERATION
+            ? StatusType.MODERATION
             : isActive
-            ? AvitoStatusType.ACTIVE
+            ? StatusType.ACTIVE
             : isArchived
-            ? AvitoStatusType.ARCHIVED
+            ? StatusType.ARCHIVED
             : isRejected
-            ? AvitoStatusType.REJECTED
-            : AvitoStatusType.UNKNOWN,
+            ? StatusType.REJECTED
+            : StatusType.UNKNOWN,
           views: views,
           url: fullUrl,
           price,

@@ -1,5 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
-import { Options, ScraperProvider } from 'src/index';
+import { Options, ScraperProvider } from '../index';
 import { getCookie, setCookie } from './cookie';
 
 export const initRequest = (options: Options = {}): AxiosInstance => {

@@ -1,4 +1,7 @@
-import { checkAd as avitoCheckAd } from './scrappers/avito';
+import {
+  checkAd as avitoCheckAd,
+  StatusType as AvitoStatusType,
+} from './scrappers/avito';
 
 export enum RoomType {
   ONE_ROOM = 'one-room',
@@ -35,6 +38,7 @@ export interface Options {
   scraperProvider?: { type: ScraperProvider; apiKey: string };
 }
 
-export const Avito = {
-  checkAd: avitoCheckAd,
-};
+export namespace Avito {
+  export const checkAd = avitoCheckAd;
+  export import StatusType = AvitoStatusType;
+}
