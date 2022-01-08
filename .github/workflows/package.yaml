@@ -19,3 +19,31 @@ jobs:
       - run: npm publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  notify:
+    runs-on: ubuntu-latest
+    needs: deploy
+    steps:
+      - uses: actions/checkout@v2
+      - name: Prepare notify
+        env:
+          GITHUB_JOB_STATUS: ${{ needs.deploy.result }}
+        run: |
+          chmod +x "${GITHUB_WORKSPACE}/.github/scripts/notify.sh"
+          "${GITHUB_WORKSPACE}/.github/scripts/notify.sh"
+
+      - name: Send telegram message on Deploy
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.NOTIFY_TELEGRAM_TO }}
+          token: ${{ secrets.NOTIFY_TELEGRAM_TOKEN }}
+          format: html
+          message: |
+            <b>Scrapper</b>
+
+            Статус: <b>${{ env.GITHUB_JOB_STATUS_EMOJI }} ${{ needs.deploy.result }}</b>
+            Версия: ${{ github.ref_name }}
+            Репо: <a href="https://github.com/${{ github.repository }}">${{ github.repository }}</a>
+
+
+
