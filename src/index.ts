@@ -30,6 +30,21 @@ export interface AdResult {
   params: Param[];
 }
 
+export const nullAdResult = (): AdResult => ({
+  status: 'NOT_FOUND',
+  views: null,
+  dateTime: null,
+  price: null,
+  area: null,
+  floor: null,
+  maxFloor: null,
+  description: null,
+  roomType: null,
+  url: null,
+  imageUrls: [],
+  params: [],
+});
+
 export enum ScraperProvider {
   SCRAPER_API = 'SCRAPER_API',
 }

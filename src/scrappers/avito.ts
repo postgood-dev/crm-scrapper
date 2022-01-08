@@ -6,8 +6,19 @@ import * as RA from 'fp-ts/lib/ReadonlyArray';
 import * as dates from 'date-fns';
 import { ru } from 'date-fns/locale';
 import { pipe } from 'fp-ts/lib/function';
-import { Options, Param, RoomType, AdResult } from '../index';
-import { axiosCallToTask, UnknownAxiosError } from '../utils/axios';
+import {
+  Options,
+  Param,
+  RoomType,
+  AdResult,
+  ScraperProvider,
+  nullAdResult,
+} from '../index';
+import {
+  axiosCallToTask,
+  isAxiosErorr,
+  UnknownAxiosError,
+} from '../utils/axios';
 import * as cheerio from 'cheerio';
 import { getCheerioOptionElement } from '../utils/cheerio';
 import { AxiosError } from 'axios';
@@ -216,7 +227,7 @@ export const checkAd = (options: Options) => {
           }),
           O.getOrElseW(() => []),
         );
-        return {
+        return Object.assign({}, nullAdResult(), {
           status: notFound
             ? StatusType.NOT_FOUND
             : hasModerationWarning
@@ -239,12 +250,25 @@ export const checkAd = (options: Options) => {
           roomType,
           description,
           imageUrls,
-        };
+        });
       }),
       TE.orElseW((e) => {
+        if (isAxiosErorr(e) && e.response?.status === 404) {
+          return TE.right(
+            Object.assign({}, nullAdResult(), { status: StatusType.NOT_FOUND }),
+          );
+        }
+        /**
+         * Потому что скрепер выдает ошибку, толко если на его стороне было 429 Rate limit
+         */
+        if (options.scraperProvider?.type === ScraperProvider.SCRAPER_API) {
+          return TE.left(e);
+        }
+
         if (attemps >= 3) {
           return TE.left(e);
         }
+
         return pipe(check(url, attemps + 1), T.delay(1000));
       }),
     );
