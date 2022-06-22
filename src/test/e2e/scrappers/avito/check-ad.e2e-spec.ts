@@ -1,7 +1,7 @@
 import * as E from 'fp-ts/lib/Either';
 
-import { checkAd } from 'src/scrappers/avito';
-import { getSafeEnv } from 'src/utils/env';
+import { checkAd } from '../../../../scrappers/avito';
+import { getSafeEnv } from '../../../../utils/env';
 
 jest.setTimeout(50000);
 

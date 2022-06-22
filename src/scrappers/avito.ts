@@ -75,7 +75,7 @@ export const checkAd = (options: Options) => {
         );
 
         const isActive = pipe(
-          $('.add-favorite'),
+          $('[data-marker="item-view/favorite-button"]'),
           getCheerioOptionElement,
           O.isSome,
         );
@@ -103,19 +103,39 @@ export const checkAd = (options: Options) => {
           O.isSome,
         );
 
+        const YESTERDAY_TIME_RE = /(В|в)чера в /;
+        const TODAY_TIME_RE = /(С|с)егодня в /;
+        const todayDate = new Date();
+        const yestardayDate = new Date(
+          new Date().setDate(new Date().getDate() - 1),
+        );
         const dateTime = pipe(
-          $('.title-info-metadata-item-redesign'),
+          $('[class*="style-item-metadata-date"]'),
           getCheerioOptionElement,
           O.map((el) => el.text().trim()),
           O.map((str) =>
-            dates.parse(str, 'd MMMM в HH:mm', new Date(), { locale: ru }),
+            TODAY_TIME_RE.test(str)
+              ? dates.parse(
+                  str.replace(TODAY_TIME_RE, ''),
+                  'HH:mm',
+                  todayDate,
+                  { locale: ru },
+                )
+              : YESTERDAY_TIME_RE.test(str)
+              ? dates.parse(
+                  str.replace(YESTERDAY_TIME_RE, ''),
+                  'HH:mm',
+                  yestardayDate,
+                  { locale: ru },
+                )
+              : dates.parse(str, 'd MMMM в HH:mm', todayDate, { locale: ru }),
           ),
           O.map((date) => dates.getTime(date)),
           O.getOrElseW(() => null),
         );
 
         const views = pipe(
-          $('.title-info-metadata-views'),
+          $('[data-marker=item-view/item-metadata-views]'),
           getCheerioOptionElement,
           O.map((el) => {
             const regExpRes = PARSE_VIEWS_RE.exec(el.text());
@@ -135,11 +155,11 @@ export const checkAd = (options: Options) => {
         );
 
         const params = pipe(
-          $('.item-params-list-item'),
+          $('[class*="params-paramsList"]'),
           getCheerioOptionElement,
           O.map((el) => {
             const result: Param[] = [];
-            el.each((i, o) => {
+            el.each((_i, o) => {
               const [key, value] = $(o).text().split(':');
 
               result.push({
@@ -174,13 +194,13 @@ export const checkAd = (options: Options) => {
         );
 
         const notFound = pipe(
-          $('.js-item-view'),
+          $('[class*="style-item-view-content"]'),
           getCheerioOptionElement,
           O.isNone,
         );
 
         const roomType = pipe(
-          $('.title-info-title-text'),
+          $('[data-marker="item-view/title-info"]'),
           getCheerioOptionElement,
           O.map((el) => el.text()),
           O.map((title) =>
@@ -198,26 +218,19 @@ export const checkAd = (options: Options) => {
         );
 
         const description = pipe(
-          $('.item-description-html'),
+          $('[data-marker="item-view/item-description"]'),
           getCheerioOptionElement,
           O.chain((el) => O.fromNullable(el.text())),
           O.map((str) => str.trim()),
-          O.alt(() =>
-            pipe(
-              getCheerioOptionElement($('.item-description-text')),
-              O.chain((el) => O.fromNullable(el.text())),
-              O.map((str) => str.trim()),
-            ),
-          ),
           O.getOrElseW(() => null),
         );
 
         const imageUrls = pipe(
-          $('.js-gallery-img-frame'),
+          $('[class*="image-frame-wrapper"]'),
           getCheerioOptionElement,
           O.map((el) => {
             const result: string[] = [];
-            el.each((i, o) => {
+            el.each((_i, o) => {
               const url = $(o).attr('data-url');
               if (url != null) {
                 result.push(url);
@@ -254,9 +267,15 @@ export const checkAd = (options: Options) => {
       }),
       TE.orElseW((e) => {
         if (isAxiosErorr(e) && e.response?.status === 404) {
-          return TE.right(
-            Object.assign({}, nullAdResult(), { status: StatusType.NOT_FOUND }),
-          );
+          if (attemps >= 3) {
+            return TE.right(
+              Object.assign({}, nullAdResult(), {
+                status: StatusType.NOT_FOUND,
+              }),
+            );
+          } else {
+            return pipe(check(url, attemps + 1), T.delay(1000));
+          }
         }
         /**
          * Потому что скрепер выдает ошибку, толко если на его стороне было 429 Rate limit
