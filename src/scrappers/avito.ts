@@ -37,6 +37,8 @@ export enum StatusType {
   UNKNOWN = 'UNKNOWN',
 }
 
+export const REJECTED_TITLES = ['Это объявление отклонено модератором'];
+
 export const checkAd = (options: Options) => {
   const request = initRequest(options);
 
@@ -55,8 +57,6 @@ export const checkAd = (options: Options) => {
 
       TE.map(({ data }) => cheerio.load(data)),
       TE.map(($) => {
-        const PARSE_VIEWS_RE = /\s*(?<views>\d*)(\s\(\+(?<add>\d*)\))?\s*/;
-
         const isArchived = pipe(
           $('.item-closed-warning__content'),
           getCheerioOptionElement,
@@ -80,6 +80,22 @@ export const checkAd = (options: Options) => {
           O.isSome,
         );
 
+        const warningTitle = pipe(
+          $(
+            '[class*="style-warning"] > [class*="style-paragraph-content"]:first-of-type',
+          ),
+          getCheerioOptionElement,
+          O.map((el) => el.text().trim()),
+        );
+
+        const warningDescription = pipe(
+          $(
+            '[class*="style-warning"] > [class*="style-paragraph-content"]:nth-of-type(2)',
+          ),
+          getCheerioOptionElement,
+          O.map((el) => el.text().trim()),
+        );
+
         const hasModerationWarning = pipe(
           $('.item-view-warning .has-bold'),
           getCheerioOptionElement,
@@ -92,13 +108,11 @@ export const checkAd = (options: Options) => {
           ),
           O.isSome,
         );
+
         const isRejected = pipe(
-          $('.item-view-warning_color-red .has-bold'),
-          getCheerioOptionElement,
-          O.chain((el) =>
-            el.text().includes('Это объявление отклонено модератором')
-              ? O.some(true)
-              : O.none,
+          warningTitle,
+          O.chain((title) =>
+            REJECTED_TITLES.includes(title) ? O.some(true) : O.none,
           ),
           O.isSome,
         );
@@ -110,9 +124,13 @@ export const checkAd = (options: Options) => {
           new Date().setDate(new Date().getDate() - 1),
         );
         const dateTime = pipe(
-          $('[class*="style-item-metadata-date"]'),
+          $('[data-marker="item-view/item-date"]'),
           getCheerioOptionElement,
-          O.map((el) => el.text().trim()),
+          O.map((el) => el.text().trim().replace('· ', '')),
+          O.map((r) => {
+            console.log(r);
+            return r;
+          }),
           O.map((str) =>
             TODAY_TIME_RE.test(str)
               ? dates.parse(
@@ -135,14 +153,13 @@ export const checkAd = (options: Options) => {
         );
 
         const views = pipe(
-          $('[data-marker=item-view/item-metadata-views]'),
+          $('[data-marker=item-view/total-views]'),
           getCheerioOptionElement,
-          O.map((el) => {
-            const regExpRes = PARSE_VIEWS_RE.exec(el.text());
-            return regExpRes != null
-              ? parseInt(regExpRes.groups?.views || '0')
-              : 0;
+          O.chain((el) => O.fromNullable(el.text())),
+          O.map((text) => {
+            return parseInt(text);
           }),
+          O.chain((res) => (isNaN(res) ? O.none : O.some(res))),
           O.getOrElseW(() => null),
         );
 
@@ -225,6 +242,15 @@ export const checkAd = (options: Options) => {
           O.getOrElseW(() => null),
         );
 
+        const address = pipe(
+          $('[class*="style-item-address__string"]'),
+          getCheerioOptionElement,
+          O.chain((el) => O.fromNullable(el.text())),
+          O.getOrElseW(() => null),
+        );
+
+        console.log(address);
+
         const imageUrls = pipe(
           $('[class*="image-frame-wrapper"]'),
           getCheerioOptionElement,
@@ -263,6 +289,7 @@ export const checkAd = (options: Options) => {
           roomType,
           description,
           imageUrls,
+          address,
         });
       }),
       TE.orElseW((e) => {

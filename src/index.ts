@@ -25,6 +25,7 @@ export interface AdResult {
   maxFloor: number | null;
   description: string | null;
   roomType: RoomType | null;
+  address: string | null;
   url: string | null;
   imageUrls: string[];
   params: Param[];
@@ -40,11 +41,11 @@ export const nullAdResult = (): AdResult => ({
   maxFloor: null,
   description: null,
   roomType: null,
+  address: null,
   url: null,
   imageUrls: [],
   params: [],
 });
-
 export enum ScraperProvider {
   SCRAPER_API = 'SCRAPER_API',
 }
