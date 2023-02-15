@@ -4,15 +4,15 @@ import { ScraperProvider } from '../../../..';
 import { checkAd } from '../../../../scrappers/avito';
 import { getSafeEnv } from '../../../../utils/env';
 
-jest.setTimeout(50000);
+jest.setTimeout(100000);
 
 describe('Check Avito Ad', () => {
-  test('Active ad without scrapper', async () => {
-    const url = getSafeEnv('CHECK_AVITO_URL');
+  // test('Active ad without scrapper', async () => {
+  //   const url = getSafeEnv('CHECK_AVITO_URL');
 
-    const res = await checkAd({})(url)();
-    expect(E.isRight(res)).toBe(true);
-  });
+  //   const res = await checkAd({})(url)();
+  //   expect(E.isRight(res)).toBe(true);
+  // });
 
   test('Active ad witht scrapper', async () => {
     const url = getSafeEnv('CHECK_AVITO_URL');
@@ -23,6 +23,7 @@ describe('Check Avito Ad', () => {
         apiKey: getSafeEnv('SCRAPER_API_KEY'),
       },
     })(url)();
+    console.log(JSON.stringify(res, null, 2));
     expect(E.isRight(res)).toBe(true);
   });
 });

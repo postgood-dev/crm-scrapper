@@ -17,6 +17,7 @@ export type Param = { key: string; value: string };
 
 export interface AdResult {
   status: string;
+  id: number | null;
   views: number | null;
   dateTime: number | null;
   price: number | null;
@@ -29,10 +30,13 @@ export interface AdResult {
   url: string | null;
   imageUrls: string[];
   params: Param[];
+  houseParams: Param[];
+  badges: string[];
 }
 
 export const nullAdResult = (): AdResult => ({
   status: 'NOT_FOUND',
+  id: null,
   views: null,
   dateTime: null,
   price: null,
@@ -45,6 +49,8 @@ export const nullAdResult = (): AdResult => ({
   url: null,
   imageUrls: [],
   params: [],
+  houseParams: [],
+  badges: [],
 });
 export enum ScraperProvider {
   SCRAPER_API = 'SCRAPER_API',

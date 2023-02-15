@@ -1,14 +1,15 @@
+// import * as fs from 'fs';
+// import * as path from 'path';
+import * as jq from 'node-jq';
 import * as T from 'fp-ts/lib/Task';
 import * as O from 'fp-ts/lib/Option';
 import * as TE from 'fp-ts/lib/TaskEither';
 import * as RNA from 'fp-ts/lib/ReadonlyNonEmptyArray';
 import * as RA from 'fp-ts/lib/ReadonlyArray';
-import * as dates from 'date-fns';
-import { ru } from 'date-fns/locale';
+import * as R from 'fp-ts/lib/Record';
 import { pipe } from 'fp-ts/lib/function';
 import {
   Options,
-  Param,
   RoomType,
   AdResult,
   ScraperProvider,
@@ -20,9 +21,10 @@ import {
   UnknownAxiosError,
 } from '../utils/axios';
 import * as cheerio from 'cheerio';
-import { getCheerioOptionElement } from '../utils/cheerio';
 import { AxiosError } from 'axios';
 import { initRequest } from '../utils/request';
+import { sequenceS } from 'fp-ts/lib/Apply';
+import { splitJqStrings } from '../utils/jq';
 
 export enum StatusType {
   ACTIVE = 'ACTIVE',
@@ -38,6 +40,190 @@ export enum StatusType {
 }
 
 export const REJECTED_TITLES = ['Это объявление отклонено модератором'];
+
+type AvitoInitialData = Record<string, unknown>;
+
+export class JqError extends Error {
+  constructor(message?: string) {
+    super(message);
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+const jqTe = (filter: string) => (obj: Object) =>
+  pipe(
+    TE.tryCatch(
+      () => jq.run(filter, obj, { input: 'json', output: 'json' }),
+      (e) => {
+        return new JqError((e as any).message || (e as any).toString());
+      },
+    ),
+    TE.map(O.fromNullable),
+  );
+
+const extractInitialData = (
+  $: cheerio.CheerioAPI,
+): O.Option<AvitoInitialData> => {
+  const script = $('script:not([src])');
+
+  const result = script.filter((_i, el) => {
+    const $el = $(el);
+    const hasInitialData = $el.html()?.includes('initialData');
+    if (hasInitialData) {
+      return true;
+    }
+    return false;
+  });
+
+  return pipe(
+    RNA.fromArray(result.toArray()),
+    O.chain(RA.head),
+
+    O.chain((el) => {
+      const html = $(el).html();
+      return O.fromNullable(html);
+    }),
+    O.chain((str) => {
+      const initialDataMatch = str.match(/window\.__initialData__ = "(.*)";/);
+      return O.fromNullable(initialDataMatch);
+    }),
+    O.chain(RA.last),
+    O.map((str) => JSON.parse(decodeURIComponent(str))),
+  );
+};
+
+const getInitialDataBxItem = (data: AvitoInitialData) => {
+  const AVITO_BX_ITEM_RE = /^@avito\/bx-item-view:.+$/g;
+  return pipe(
+    R.toArray(data),
+    RNA.fromArray,
+    O.chain(RA.findFirst(([key]) => AVITO_BX_ITEM_RE.test(key))),
+    O.map(([version, data]) => ({
+      version,
+      data,
+    })),
+  );
+};
+
+const PARSE_INITIAL_DATA_JQ_SELECTOR = {
+  url: '.data.buyerItem.itemSocials.url',
+  media: '.data.buyerItem.galleryInfo.media[]?.urls["1280x960"]',
+  address: '.data.buyerItem.item.address',
+  description: '.data.buyerItem.item.description',
+  finishTime: '.data.buyerItem.item.finishTime',
+  id: '.data.buyerItem.contactBarInfo.itemId',
+  price: '.data.buyerItem.item.price',
+  isActive: '.data.buyerItem.item.isActive',
+  isArchived: '.data.buyerItem.item.isArchived',
+  isBlocked: '.data.buyerItem.item.isBlocked',
+  isClosed: '.data.buyerItem.item.isClosed',
+  isDeleted: '.data.buyerItem.item.isDeleted',
+  isExpired: '.data.buyerItem.item.isExpired',
+  isFeesWaiting: '.data.buyerItem.item.isFeesWaiting',
+  isFinished: '.data.buyerItem.item.isFinished',
+  isInModeration: '.data.buyerItem.item.isInModeration',
+  isItemActiveOrUserHasAccess:
+    '.data.buyerItem.item.isItemActiveOrUserHasAccess',
+  isNewDevelopmentsPromo: '.data.buyerItem.item.isNewDevelopmentsPromo',
+  isNoAdsAuto: '.data.buyerItem.item.isNoAdsAuto',
+  isRejected: '.data.buyerItem.item.isRejected',
+  viewStat: '.data.buyerItem.viewStat',
+  userKey: '.data.buyerItem.favoriteSeller.userKey',
+  area: '.data.buyerItem.ga[1].area',
+  area_kitchen: '.data.buyerItem.ga[1].area_kitchen',
+  area_live: '.data.buyerItem.ga[1].area_live',
+  categoryId: '.data.buyerItem.ga[1].categoryId',
+  categorySlug: '.data.buyerItem.ga[1].categorySlug',
+  commission: '.data.buyerItem.ga[1].commission',
+  floor: '.data.buyerItem.ga[1].floor',
+  floors_count: '.data.buyerItem.ga[1].floors_count',
+  house_type: '.data.buyerItem.ga[1].house_type',
+  rooms: '.data.buyerItem.ga[1].rooms',
+  status: '.data.buyerItem.ga[1].status',
+  type: '.data.buyerItem.ga[1].type',
+  sellerBadges: '.data.buyerItem.item.sellerBadgeBar.badges[]?.title',
+  itemBadges: '.data.buyerItem.item.badgeBar.badges[]?.title',
+} as const;
+
+type AvitoParseInitialDataJqResult = {
+  [key in keyof typeof PARSE_INITIAL_DATA_JQ_SELECTOR]: O.Option<
+    string | object | boolean
+  >;
+};
+
+const getStatusFromParseInitialData = (
+  data: AvitoParseInitialDataJqResult,
+): StatusType =>
+  pipe(
+    {
+      isActive: data.isActive,
+      isArchived: data.isArchived,
+      isBlocked: data.isBlocked,
+      isClosed: data.isClosed,
+      isDeleted: data.isDeleted,
+      isExpired: data.isExpired,
+      isFeesWaiting: data.isFeesWaiting,
+      isFinished: data.isFinished,
+      isInModeration: data.isInModeration,
+      isRejected: data.isRejected,
+    },
+    R.map(
+      O.fold(
+        () => false,
+        (a) => !!a,
+      ),
+    ),
+    (statuses) => {
+      if (statuses.isInModeration) {
+        return StatusType.MODERATION;
+      }
+
+      if (statuses.isActive) {
+        return StatusType.ACTIVE;
+      }
+
+      if (
+        statuses.isArchived ||
+        statuses.isClosed ||
+        statuses.isFinished ||
+        statuses.isExpired ||
+        statuses.isDeleted
+      ) {
+        return StatusType.ARCHIVED;
+      }
+
+      if (statuses.isBlocked) {
+        return StatusType.BLOCKED;
+      }
+
+      if (statuses.isRejected) {
+        return StatusType.REJECTED;
+      }
+
+      return StatusType.UNKNOWN;
+    },
+  );
+
+const getRoomTypeFromParseInitialData = (data: AvitoParseInitialDataJqResult) =>
+  pipe(
+    data.rooms,
+    O.chain((rooms) => {
+      // map string 1,2,3,4,'Студия' to RoomType
+      if (rooms === 'Студия') {
+        return O.some(RoomType.STUDIO);
+      } else if (rooms === '1') {
+        return O.some(RoomType.ONE_ROOM);
+      } else if (rooms === '2') {
+        return O.some(RoomType.TWO_ROOM);
+      } else if (rooms === '3') {
+        return O.some(RoomType.THREE_ROOM);
+      } else if (rooms === '4') {
+        return O.some(RoomType.FOUR_ROOM);
+      } else {
+        return O.none;
+      }
+    }),
+  );
 
 export const checkAd = (options: Options) => {
   const request = initRequest(options);
@@ -55,241 +241,72 @@ export const checkAd = (options: Options) => {
         }),
       ),
 
-      TE.map(({ data }) => cheerio.load(data)),
-      TE.map(($) => {
-        const isArchived = pipe(
-          $('.item-closed-warning__content'),
-          getCheerioOptionElement,
-          O.chain((el) =>
-            el.text().includes('Объявление снято с публикации')
-              ? O.some(true)
-              : O.none,
-          ),
-          O.isSome,
-        );
-        const fullUrl: string | null = pipe(
-          $('meta[property="og:url"]'),
-          getCheerioOptionElement,
-          O.chain((el) => O.fromNullable(el.attr('content'))),
-          O.getOrElseW(() => null),
+      TE.map(({ data }) => cheerio.load(data, { xmlMode: false })),
+      TE.chain(($) => {
+        // get script without attr src
+
+        const scriptTag = pipe(
+          extractInitialData($),
+          O.chain(getInitialDataBxItem),
         );
 
-        const isActive = pipe(
-          $('[data-marker="item-view/favorite-button"]'),
-          getCheerioOptionElement,
-          O.isSome,
+        return TE.fromOption(() => new Error('Initial data in null'))(
+          scriptTag,
         );
-
-        const warningTitle = pipe(
-          $(
-            '[class*="style-warning"] > [class*="style-paragraph-content"]:first-of-type',
-          ),
-          getCheerioOptionElement,
-          O.map((el) => el.text().trim()),
+      }),
+      TE.chainW((initialData) => {
+        // fs sync save to the json
+        // fs.writeFileSync(
+        //   path.join(__dirname, 'initialData.json'),
+        //   JSON.stringify(initialData, null, 2),
+        //   'utf8',
+        // );
+        return pipe(
+          PARSE_INITIAL_DATA_JQ_SELECTOR,
+          R.map(jqTe),
+          R.map((f) => f(initialData)),
+          sequenceS(TE.ApplicativePar),
+          TE.map((r) => ({ ...r, version: initialData.version })),
         );
+      }),
 
-        const warningDescription = pipe(
-          $(
-            '[class*="style-warning"] > [class*="style-paragraph-content"]:nth-of-type(2)',
-          ),
-          getCheerioOptionElement,
-          O.map((el) => el.text().trim()),
-        );
-
-        const hasModerationWarning = pipe(
-          $('.item-view-warning .has-bold'),
-          getCheerioOptionElement,
-          O.chain((el) =>
-            el
-              .text()
-              .includes('Сейчас это объявление проверяется модераторами.')
-              ? O.some(true)
-              : O.none,
-          ),
-          O.isSome,
-        );
-
-        const isRejected = pipe(
-          warningTitle,
-          O.chain((title) =>
-            REJECTED_TITLES.includes(title) ? O.some(true) : O.none,
-          ),
-          O.isSome,
-        );
-
-        const YESTERDAY_TIME_RE = /(В|в)чера в /;
-        const TODAY_TIME_RE = /(С|с)егодня в /;
-        const todayDate = new Date();
-        const yestardayDate = new Date(
-          new Date().setDate(new Date().getDate() - 1),
-        );
-        const dateTime = pipe(
-          $('[data-marker="item-view/item-date"]'),
-          getCheerioOptionElement,
-          O.map((el) => el.text().trim().replace('· ', '')),
-          O.map((r) => {
-            console.log(r);
-            return r;
-          }),
-          O.map((str) =>
-            TODAY_TIME_RE.test(str)
-              ? dates.parse(
-                  str.replace(TODAY_TIME_RE, ''),
-                  'HH:mm',
-                  todayDate,
-                  { locale: ru },
-                )
-              : YESTERDAY_TIME_RE.test(str)
-              ? dates.parse(
-                  str.replace(YESTERDAY_TIME_RE, ''),
-                  'HH:mm',
-                  yestardayDate,
-                  { locale: ru },
-                )
-              : dates.parse(str, 'd MMMM в HH:mm', todayDate, { locale: ru }),
-          ),
-          O.map((date) => dates.getTime(date)),
-          O.getOrElseW(() => null),
-        );
-
-        const views = pipe(
-          $('[data-marker=item-view/total-views]'),
-          getCheerioOptionElement,
-          O.chain((el) => O.fromNullable(el.text())),
-          O.map((text) => {
-            return parseInt(text);
-          }),
-          O.chain((res) => (isNaN(res) ? O.none : O.some(res))),
-          O.getOrElseW(() => null),
-        );
-
-        const price = pipe(
-          $('.js-item-price'),
-          getCheerioOptionElement,
-          O.chain((el) => O.fromNullable(el.attr('content'))),
-          O.map(parseInt),
-          O.getOrElseW(() => null),
-        );
-
-        const params = pipe(
-          $('[class*="params-paramsList"]'),
-          getCheerioOptionElement,
-          O.map((el) => {
-            const result: Param[] = [];
-            el.each((_i, o) => {
-              const [key, value] = $(o).text().split(':');
-
-              result.push({
-                key: key.trim(),
-                value: value.trim().replace('\n', ''),
-              });
-            });
-            return result;
-          }),
-          O.getOrElseW(() => []),
-        );
-
-        const findParamByKey =
-          (p: Param[]) =>
-          (key: string): O.Option<Param> =>
-            pipe(p, RNA.fromArray, O.chain(RA.findFirst((a) => a.key === key)));
-
-        const area = pipe(
-          'Общая площадь',
-          findParamByKey(params),
-          O.map((o) => o.value),
-          O.map(parseInt),
-          O.getOrElseW(() => null),
-        );
-
-        const [floor, maxFloor] = pipe(
-          'Этаж',
-          findParamByKey(params),
-          O.map((o) => o.value.split('из')),
-          O.map(RA.map((i) => parseInt(i))),
-          O.getOrElseW(() => [null, null]),
-        );
-
-        const notFound = pipe(
-          $('[class*="style-item-view-content"]'),
-          getCheerioOptionElement,
-          O.isNone,
-        );
-
-        const roomType = pipe(
-          $('[data-marker="item-view/title-info"]'),
-          getCheerioOptionElement,
-          O.map((el) => el.text()),
-          O.map((title) =>
-            /^1-к/.test(title)
-              ? RoomType.ONE_ROOM
-              : /^2-к/.test(title)
-              ? RoomType.TWO_ROOM
-              : /^3-к/.test(title)
-              ? RoomType.THREE_ROOM
-              : /^Квартира-студия/.test(title)
-              ? RoomType.STUDIO
-              : null,
-          ),
-          O.getOrElseW(() => null),
-        );
-
-        const description = pipe(
-          $('[data-marker="item-view/item-description"]'),
-          getCheerioOptionElement,
-          O.chain((el) => O.fromNullable(el.text())),
-          O.map((str) => str.trim()),
-          O.getOrElseW(() => null),
-        );
-
-        const address = pipe(
-          $('[class*="style-item-address__string"]'),
-          getCheerioOptionElement,
-          O.chain((el) => O.fromNullable(el.text())),
-          O.getOrElseW(() => null),
-        );
-
-        console.log(address);
-
-        const imageUrls = pipe(
-          $('[class*="image-frame-wrapper"]'),
-          getCheerioOptionElement,
-          O.map((el) => {
-            const result: string[] = [];
-            el.each((_i, o) => {
-              const url = $(o).attr('data-url');
-              if (url != null) {
-                result.push(url);
-              }
-            });
-            return result;
-          }),
-          O.getOrElseW(() => []),
-        );
+      TE.map((r: AvitoParseInitialDataJqResult) => {
         return Object.assign({}, nullAdResult(), {
-          status: notFound
-            ? StatusType.NOT_FOUND
-            : hasModerationWarning
-            ? StatusType.MODERATION
-            : isActive
-            ? StatusType.ACTIVE
-            : isArchived
-            ? StatusType.ARCHIVED
-            : isRejected
-            ? StatusType.REJECTED
-            : StatusType.UNKNOWN,
-          views: views,
-          url: fullUrl,
-          price,
-          dateTime,
-          params,
-          area,
-          floor,
-          maxFloor,
-          roomType,
-          description,
-          imageUrls,
-          address,
+          status: getStatusFromParseInitialData(r),
+          id: O.getOrElseW(() => null)(r.id),
+          views: pipe(
+            r.viewStat,
+            O.chain((a) => O.fromNullable((a as any).totalViews)),
+            O.getOrElseW(() => 0),
+          ),
+          dateTime: O.getOrElseW(() => null)(r.finishTime),
+          price: O.getOrElseW(() => null)(r.price),
+          area: pipe(
+            r.area,
+            O.map((s) => parseFloat(s as string)),
+            O.getOrElseW(() => null),
+          ),
+          floor: O.getOrElseW(() => null)(r.floor),
+          maxFloor: O.getOrElseW(() => null)(r.floors_count),
+          description: O.getOrElseW(() => null)(r.description),
+          address: O.getOrElseW(() => null)(r.address),
+          imageUrls: pipe(
+            r.media,
+            O.map(splitJqStrings),
+            O.getOrElseW(() => []),
+          ),
+          badges: pipe(
+            [r.sellerBadges, r.itemBadges],
+            O.sequenceArray,
+            O.map(RA.map(splitJqStrings)),
+            O.map(RA.flatten),
+            O.map(RA.filter((i) => i !== '')),
+            O.getOrElseW(() => []),
+          ),
+          url: O.getOrElseW(() => null)(r.url),
+          roomType: O.getOrElseW(() => null)(
+            getRoomTypeFromParseInitialData(r),
+          ),
         });
       }),
       TE.orElseW((e) => {
